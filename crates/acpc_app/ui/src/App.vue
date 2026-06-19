@@ -96,7 +96,7 @@ const state = reactive({
 // Apply the saved theme immediately and sync it into state.
 state.theme = initTheme();
 function onThemeChange(v: any) { if (v) applyTheme(v); }
-const APP_VERSION = "0.1.1";
+const APP_VERSION = "0.2.0";
 const settingsTabs = [
   { id: "appearance", label: "Appearance" },
   { id: "agents", label: "Agents" },
