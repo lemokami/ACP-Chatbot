@@ -22,6 +22,19 @@ pub enum AutoApprove {
     AllowAll,
 }
 
+/// Controls whether the agent may persist files to disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileAccess {
+    /// Never write to disk; writes are kept in-memory for the session only.
+    #[default]
+    OutputOnly,
+    /// Prompt the user before each file write.
+    Ask,
+    /// Write files to disk without prompting.
+    Allow,
+}
+
 /// JustChat settings, typically deserialized from `acp_settings.json`.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -32,6 +45,9 @@ pub struct Settings {
     /// used to auto-approve requests in [`AutoApprove::Allowlist`] mode.
     #[serde(default)]
     pub allowlist: Vec<String>,
+    /// Whether the agent may write files to disk.
+    #[serde(default)]
+    pub file_access: FileAccess,
     /// Optional working directory override for the agent/session.
     pub cwd: Option<PathBuf>,
     /// Extra environment variables to inject into the agent subprocess.

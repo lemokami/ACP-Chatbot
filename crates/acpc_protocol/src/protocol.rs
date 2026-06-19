@@ -220,6 +220,7 @@ pub struct ClientShared {
     pub(crate) next_request_id: Rc<RefCell<u64>>,
     pub(crate) settings: Rc<Settings>,
     pub(crate) terminals: Rc<RefCell<TerminalManager>>,
+    pub(crate) virtual_files: Rc<RefCell<HashMap<std::path::PathBuf, String>>>,
 }
 
 impl ClientShared {
@@ -230,6 +231,7 @@ impl ClientShared {
             next_request_id: Rc::new(RefCell::new(1)),
             settings: Rc::new(settings),
             terminals: Rc::new(RefCell::new(TerminalManager::default())),
+            virtual_files: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
@@ -393,11 +395,74 @@ impl acp::Client for KiroClient {
         if !args.path.is_absolute() {
             return Err(acp::Error::invalid_params().with_data("path must be absolute"));
         }
-        if let Some(parent) = args.path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        match self.shared.settings.file_access {
+            crate::settings::FileAccess::Allow => {
+                if let Some(parent) = args.path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::fs::write(&args.path, &args.content)
+                    .map_err(|e| acp::Error::internal_error().with_data(e.to_string()))?;
+            }
+            crate::settings::FileAccess::Ask => {
+                let request_id = {
+                    let mut id = self.shared.next_request_id.borrow_mut();
+                    let v = *id;
+                    *id += 1;
+                    v
+                };
+                let (tx, rx) = oneshot::channel();
+                self.shared.pending.borrow_mut().insert(
+                    request_id,
+                    PendingPermission {
+                        options: vec![
+                            acp::PermissionOptionId("allow".into()),
+                            acp::PermissionOptionId("reject".into()),
+                        ],
+                        responder: tx,
+                    },
+                );
+                self.shared.emit(Event::PermissionRequested {
+                    request_id,
+                    session_id: args.session_id.to_string(),
+                    title: format!("Write file {}", args.path.display()),
+                    options: vec![
+                        PermissionOptionInfo {
+                            id: "allow".into(),
+                            name: "Allow".into(),
+                            kind: "allow_once".into(),
+                        },
+                        PermissionOptionInfo {
+                            id: "reject".into(),
+                            name: "Reject".into(),
+                            kind: "reject_once".into(),
+                        },
+                    ],
+                });
+                let allowed = matches!(
+                    rx.await,
+                    Ok(acp::RequestPermissionOutcome::Selected { option_id })
+                        if option_id.0.as_ref() == "allow"
+                );
+                if allowed {
+                    if let Some(parent) = args.path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    std::fs::write(&args.path, &args.content)
+                        .map_err(|e| acp::Error::internal_error().with_data(e.to_string()))?;
+                } else {
+                    self.shared
+                        .virtual_files
+                        .borrow_mut()
+                        .insert(args.path.clone(), args.content.clone());
+                }
+            }
+            crate::settings::FileAccess::OutputOnly => {
+                self.shared
+                    .virtual_files
+                    .borrow_mut()
+                    .insert(args.path.clone(), args.content.clone());
+            }
         }
-        std::fs::write(&args.path, &args.content)
-            .map_err(|e| acp::Error::internal_error().with_data(e.to_string()))?;
         Ok(acp::WriteTextFileResponse { meta: None })
     }
 
@@ -408,8 +473,12 @@ impl acp::Client for KiroClient {
         if !args.path.is_absolute() {
             return Err(acp::Error::invalid_params().with_data("path must be absolute"));
         }
-        let content = std::fs::read_to_string(&args.path)
-            .map_err(|e| acp::Error::internal_error().with_data(e.to_string()))?;
+        let content = if let Some(c) = self.shared.virtual_files.borrow().get(&args.path).cloned() {
+            c
+        } else {
+            std::fs::read_to_string(&args.path)
+                .map_err(|e| acp::Error::internal_error().with_data(e.to_string()))?
+        };
 
         // Honor optional 1-based line offset and limit.
         let content = if args.line.is_some() || args.limit.is_some() {

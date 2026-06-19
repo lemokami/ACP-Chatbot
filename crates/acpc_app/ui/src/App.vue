@@ -88,6 +88,7 @@ const state = reactive({
   showAgents: false,
   theme: "clay" as string,
   permMode: "ask" as string,
+  fileAccess: "output_only" as string,
   allowlist: [] as string[],
   settingsTab: "appearance" as string,
 });
@@ -105,6 +106,7 @@ function saveSettings() {
   invoke("save_settings", {
     settings: {
       autoApprovePermissions: state.permMode,
+      fileAccess: state.fileAccess,
       allowlist: state.allowlist.filter((s) => s.trim()),
     },
   });
@@ -438,6 +440,7 @@ async function boot() {
   try {
     const s: any = await invoke("load_settings");
     state.permMode = s.autoApprovePermissions || "ask";
+    state.fileAccess = s.fileAccess || "output_only";
     state.allowlist = s.allowlist || [];
   } catch { /* defaults */ }
 
@@ -694,6 +697,20 @@ boot();
             </div>
 
             <div v-else-if="state.settingsTab === 'behavior'" class="space-y-4">
+              <div class="space-y-1.5">
+                <h3 class="text-sm font-semibold">Agent file access</h3>
+                <Select v-model="state.fileAccess" @update:modelValue="saveSettings">
+                  <SelectTrigger class="h-9 w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="output_only">Output only (never save to disk)</SelectItem>
+                    <SelectItem value="ask">Ask before saving each file</SelectItem>
+                    <SelectItem value="allow">Allow (save to disk)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p class="text-xs text-muted-foreground">
+                  In output-only mode, files the agent writes are kept in memory for the session and never saved to disk.
+                </p>
+              </div>
               <div class="space-y-1.5">
                 <h3 class="text-sm font-semibold">Tool permissions</h3>
                 <Select v-model="state.permMode" @update:modelValue="saveSettings">
