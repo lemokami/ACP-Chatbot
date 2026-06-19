@@ -154,6 +154,8 @@ pub enum Event {
         kind: String,
         /// Execution status (snake_case).
         status: String,
+        /// File paths this tool call touches.
+        locations: Vec<String>,
     },
     /// An update to an existing tool call.
     ToolCallUpdate {
@@ -165,6 +167,8 @@ pub enum Event {
         status: Option<String>,
         /// Newly produced textual output, if any.
         output: Option<String>,
+        /// File paths this tool call touches (empty if unchanged).
+        locations: Vec<String>,
     },
     /// The agent published or updated its plan.
     Plan {
@@ -599,6 +603,7 @@ impl acp::Client for KiroClient {
                     title: tc.title,
                     kind: snake(&tc.kind),
                     status: snake(&tc.status),
+                    locations: tc.locations.iter().map(|l| l.path.display().to_string()).collect(),
                 });
             }
             acp::SessionUpdate::ToolCallUpdate(update) => {
@@ -611,6 +616,12 @@ impl acp::Client for KiroClient {
                         .content
                         .as_ref()
                         .and_then(|c| tool_content_text(c)),
+                    locations: update
+                        .fields
+                        .locations
+                        .as_ref()
+                        .map(|ls| ls.iter().map(|l| l.path.display().to_string()).collect())
+                        .unwrap_or_default(),
                 });
             }
             acp::SessionUpdate::Plan(plan) => {

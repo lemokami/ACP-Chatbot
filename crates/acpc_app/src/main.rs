@@ -70,7 +70,10 @@ fn kiroui_dir() -> PathBuf {
 }
 
 fn default_chat_workspace() -> PathBuf {
-    let dir = kiroui_dir().join("workspace");
+    let dir = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("JustChat");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -153,6 +156,12 @@ fn save_settings(settings: Settings) {
     if let Ok(text) = serde_json::to_string_pretty(&settings) {
         let _ = std::fs::write(settings_file(), text);
     }
+}
+
+/// Open a file or folder with the OS default handler (Finder/Preview/etc.).
+#[tauri::command]
+fn open_path(path: String) {
+    let _ = std::process::Command::new("open").arg(&path).spawn();
 }
 
 fn settings_file() -> PathBuf {
@@ -385,7 +394,8 @@ fn main() {
             load_agents,
             save_agents,
             load_settings,
-            save_settings
+            save_settings,
+            open_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

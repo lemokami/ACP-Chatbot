@@ -27,11 +27,11 @@ pub enum AutoApprove {
 #[serde(rename_all = "snake_case")]
 pub enum FileAccess {
     /// Never write to disk; writes are kept in-memory for the session only.
-    #[default]
     OutputOnly,
     /// Prompt the user before each file write.
     Ask,
     /// Write files to disk without prompting.
+    #[default]
     Allow,
 }
 

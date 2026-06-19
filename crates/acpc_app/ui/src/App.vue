@@ -56,6 +56,7 @@ interface PermOption { id: string; name: string; kind: string }
 interface ToolCall {
   id: string; title: string; kind: string; status: string;
   output: string | null; permission: { requestId: number; options: PermOption[] } | null;
+  locations: string[];
 }
 interface Msg {
   role: Role; content: string; thoughts: string;
@@ -88,7 +89,7 @@ const state = reactive({
   showAgents: false,
   theme: "clay" as string,
   permMode: "ask" as string,
-  fileAccess: "output_only" as string,
+  fileAccess: "allow" as string,
   allowlist: [] as string[],
   settingsTab: "appearance" as string,
 });
@@ -114,6 +115,7 @@ function saveSettings() {
 function addAllowEntry() { state.allowlist.push(""); }
 function removeAllowEntry(i: number) { state.allowlist.splice(i, 1); saveSettings(); }
 function reconnectToApply() { if (connectedAgent.value) connectAgent(connectedAgent.value); }
+function openPath(p: string) { invoke("open_path", { path: p }); }
 
 const ta = ref<HTMLTextAreaElement | null>(null);
 const slashIndex = ref(0);
@@ -197,7 +199,7 @@ function persist(c: Chat | null) {
       role: m.role, content: m.content, thoughts: m.thoughts,
       attachments: m.attachments,
       // tool calls without transient permission prompts
-      toolCalls: m.toolCalls.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, output: t.output })),
+      toolCalls: m.toolCalls.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, output: t.output, locations: t.locations })),
     })),
   };
   invoke("save_chat", { id: c.id, data });
@@ -273,14 +275,14 @@ function applyEvent(ev: any) {
     case "commands_available": state.commands = ev.commands || []; break;
     case "message_chunk": { const c = chatByAcp(ev.session_id); if (c) { streamingMsg(c).content += ev.text; } break; }
     case "thought_chunk": { const c = chatByAcp(ev.session_id); if (c) { streamingMsg(c).thoughts += ev.text; } break; }
-    case "tool_call": { const c = chatByAcp(ev.session_id); if (c) streamingMsg(c).toolCalls.push({ id: ev.id, title: ev.title, kind: ev.kind, status: ev.status, output: null, permission: null }); break; }
-    case "tool_call_update": { const c = chatByAcp(ev.session_id); if (c) { const t = findTool(c, ev.id); if (t) { if (ev.status) t.status = ev.status; if (ev.output != null) t.output = (t.output || "") + ev.output; } } break; }
+    case "tool_call": { const c = chatByAcp(ev.session_id); if (c) streamingMsg(c).toolCalls.push({ id: ev.id, title: ev.title, kind: ev.kind, status: ev.status, output: null, permission: null, locations: ev.locations || [] }); break; }
+    case "tool_call_update": { const c = chatByAcp(ev.session_id); if (c) { const t = findTool(c, ev.id); if (t) { if (ev.status) t.status = ev.status; if (ev.output != null) t.output = (t.output || "") + ev.output; if (ev.locations && ev.locations.length) t.locations = ev.locations; } } break; }
     case "plan": { const c = chatByAcp(ev.session_id); if (c) streamingMsg(c).thoughts = "Plan:\n- " + ev.entries.join("\n- "); break; }
     case "permission_requested": {
       const c = chatByAcp(ev.session_id); if (!c) break;
       const m = streamingMsg(c);
       let t = m.toolCalls.find((x) => x.title === ev.title) || m.toolCalls[m.toolCalls.length - 1];
-      if (!t) { t = { id: "perm-" + ev.request_id, title: ev.title, kind: "other", status: "pending", output: null, permission: null }; m.toolCalls.push(t); }
+      if (!t) { t = { id: "perm-" + ev.request_id, title: ev.title, kind: "other", status: "pending", output: null, permission: null, locations: [] }; m.toolCalls.push(t); }
       t.permission = { requestId: ev.request_id, options: ev.options };
       break;
     }
@@ -419,7 +421,7 @@ async function boot() {
       messages: (c.messages || []).map((m: any) => ({
         role: m.role, content: m.content || "", thoughts: m.thoughts || "",
         attachments: m.attachments || [], streaming: false,
-        toolCalls: (m.toolCalls || []).map((t: any) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, output: t.output ?? null, permission: null })),
+        toolCalls: (m.toolCalls || []).map((t: any) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, output: t.output ?? null, permission: null, locations: t.locations || [] })),
       })),
     }));
   } catch { /* no history */ }
@@ -440,7 +442,7 @@ async function boot() {
   try {
     const s: any = await invoke("load_settings");
     state.permMode = s.autoApprovePermissions || "ask";
-    state.fileAccess = s.fileAccess || "output_only";
+    state.fileAccess = s.fileAccess || "allow";
     state.allowlist = s.allowlist || [];
   } catch { /* defaults */ }
 
@@ -532,6 +534,13 @@ boot();
                 <ToolHeader type="dynamic-tool" :tool-name="tc.kind" :title="tc.title" :state="toolState(tc)" />
                 <ToolContent>
                   <ToolOutput v-if="tc.output" :output="tc.output" :error-text="tc.status === 'failed' ? tc.output : undefined" />
+                  <div v-if="tc.locations && tc.locations.length" class="px-3 py-2 flex flex-wrap gap-2 border-t">
+                    <button v-for="p in tc.locations" :key="p"
+                      class="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                      :title="p" @click="openPath(p)">
+                      <FileTextIcon class="size-3.5" /> Open {{ fileName(p) }}
+                    </button>
+                  </div>
                   <div v-if="tc.permission" class="p-3 border-t">
                     <div class="flex items-center gap-1.5 text-xs text-amber-500 mb-2">
                       <TriangleAlertIcon class="size-3.5" /> Approval required
