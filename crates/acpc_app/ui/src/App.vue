@@ -509,7 +509,7 @@ boot();
                 </ToolContent>
               </Tool>
 
-              <MessageResponse v-if="m.role === 'agent' && m.content" :content="m.content" class="leading-7" />
+              <MessageResponse v-if="m.role === 'agent' && m.content" :content="m.content" class="font-serif text-[15px] leading-7" />
 
               <div v-if="m.streaming && !m.content && !m.toolCalls.length" class="inline-flex items-center gap-2 text-muted-foreground text-sm leading-none">
                 <Loader :size="14" />
@@ -526,7 +526,7 @@ boot();
         <!-- Home greeting (shown until the chat has messages) -->
         <div v-if="!hasMessages" class="text-center mb-7">
           <div class="mx-auto mb-4 h-12 w-12 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-lg">A</div>
-          <h1 class="text-2xl font-semibold tracking-tight">{{ greeting }}</h1>
+          <h1 class="text-2xl font-serif font-medium tracking-tight">{{ greeting }}</h1>
           <p class="text-muted-foreground text-sm mt-1.5">Chat, run tools, and read files right from your desktop.</p>
         </div>
 
