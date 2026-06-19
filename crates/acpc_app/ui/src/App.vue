@@ -472,16 +472,7 @@ boot();
           </span>
           <Button v-if="state.conn === 'connected'" size="sm" variant="ghost" @click="disconnect">Disconnect</Button>
           <Button v-else size="sm" @click="connectActive">Connect</Button>
-          <Select v-model="state.theme" @update:modelValue="onThemeChange">
-            <SelectTrigger class="h-8 gap-1.5 text-xs w-[150px]" title="Theme">
-              <PaletteIcon class="size-3.5 shrink-0 opacity-70" />
-              <SelectValue placeholder="Theme" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="t in THEMES" :key="t.id" :value="t.id">{{ t.label }}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="ghost" size="icon-sm" title="Manage agents" @click="openAgents">
+          <Button variant="ghost" size="icon-sm" title="Settings" @click="openAgents">
             <Settings2Icon class="size-4" />
           </Button>
         </div>
@@ -612,13 +603,28 @@ boot();
     <Dialog v-model:open="state.showAgents">
       <DialogContent class="sm:max-w-2xl max-h-[82vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Agents</DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Connect any ACP-compatible agent. Set its command, arguments, and any API-key environment variables.
+            Choose a theme and connect any ACP-compatible agent.
           </DialogDescription>
         </DialogHeader>
 
         <div class="space-y-4 py-2">
+          <!-- Appearance -->
+          <div class="space-y-1.5">
+            <div class="text-xs font-medium text-muted-foreground">Theme</div>
+            <Select v-model="state.theme" @update:modelValue="onThemeChange">
+              <SelectTrigger class="h-9 w-full gap-2">
+                <PaletteIcon class="size-4 shrink-0 opacity-70" />
+                <SelectValue placeholder="Select theme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="t in THEMES" :key="t.id" :value="t.id">{{ t.label }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div class="text-xs font-medium text-muted-foreground pt-1">Agents</div>
           <div v-for="a in state.agents" :key="a.id" class="rounded-lg border p-3 space-y-2"
             :class="state.connectedAgentId === a.id && state.conn === 'connected' ? 'border-primary/60' : ''">
             <div class="flex items-center gap-2">

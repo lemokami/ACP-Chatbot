@@ -1,5 +1,5 @@
 // Theme registry. Each theme maps to a CSS token block in `style.css`
-// (`[data-theme="<id>"]`), except the default "clay" which lives in `:root`.
+// (`[data-theme="<id>"]`), except "clay" which is the `:root` palette.
 // `dark` toggles the `.dark` class so Tailwind `dark:` variants activate.
 
 export interface ThemeDef {
@@ -9,8 +9,8 @@ export interface ThemeDef {
 }
 
 export const THEMES: ThemeDef[] = [
-  { id: "clay", label: "Clay (Light)", dark: false },
   { id: "clay-dark", label: "Clay (Dark)", dark: true },
+  { id: "clay", label: "Clay (Light)", dark: false },
   { id: "light", label: "Light", dark: false },
   { id: "dark", label: "Dark", dark: true },
   { id: "dracula", label: "Dracula", dark: true },
@@ -23,24 +23,29 @@ export const THEMES: ThemeDef[] = [
   { id: "solarized-dark", label: "Solarized Dark", dark: true },
 ];
 
-export const DEFAULT_THEME = "clay";
-const STORAGE_KEY = "justchat-theme";
+export const DEFAULT_THEME = "clay-dark";
+// Bumped key so the previous build's auto-saved default doesn't pin the theme.
+const STORAGE_KEY = "justchat-theme:v2";
 
-export function applyTheme(id: string) {
+export function applyTheme(id: string, persist = true) {
   const t = THEMES.find((x) => x.id === id) || THEMES[0];
   const root = document.documentElement;
-  if (t.id === DEFAULT_THEME) root.removeAttribute("data-theme");
+  // "clay" is the :root palette and needs no data-theme attribute.
+  if (t.id === "clay") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", t.id);
   root.classList.toggle("dark", t.dark);
   root.style.colorScheme = t.dark ? "dark" : "light";
-  try {
-    localStorage.setItem(STORAGE_KEY, t.id);
-  } catch {
-    /* storage unavailable */
+  if (persist) {
+    try {
+      localStorage.setItem(STORAGE_KEY, t.id);
+    } catch {
+      /* storage unavailable */
+    }
   }
 }
 
-/** Read the saved theme (default if none), apply it, and return its id. */
+/** Read the saved theme (default if none), apply it, and return its id.
+ *  Does not persist, so the default applies until the user picks a theme. */
 export function initTheme(): string {
   let id = DEFAULT_THEME;
   try {
@@ -49,6 +54,6 @@ export function initTheme(): string {
     /* storage unavailable */
   }
   if (!THEMES.some((t) => t.id === id)) id = DEFAULT_THEME;
-  applyTheme(id);
+  applyTheme(id, false);
   return id;
 }
