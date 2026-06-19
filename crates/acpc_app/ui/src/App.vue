@@ -30,6 +30,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { THEMES, applyTheme, initTheme } from "@/themes";
 import {
   PaperclipIcon,
   PlusIcon,
@@ -43,6 +44,7 @@ import {
   Settings2Icon,
   ArrowUpIcon,
   SquareIcon,
+  PaletteIcon,
 } from "@lucide/vue";
 
 const tauri = (window as any).__TAURI__;
@@ -84,7 +86,11 @@ const state = reactive({
   activeAgentId: "" as string,
   connectedAgentId: "" as string,
   showAgents: false,
+  theme: "clay" as string,
 });
+// Apply the saved theme immediately and sync it into state.
+state.theme = initTheme();
+function onThemeChange(v: any) { if (v) applyTheme(v); }
 
 const ta = ref<HTMLTextAreaElement | null>(null);
 const slashIndex = ref(0);
@@ -466,6 +472,15 @@ boot();
           </span>
           <Button v-if="state.conn === 'connected'" size="sm" variant="ghost" @click="disconnect">Disconnect</Button>
           <Button v-else size="sm" @click="connectActive">Connect</Button>
+          <Select v-model="state.theme" @update:modelValue="onThemeChange">
+            <SelectTrigger class="h-8 gap-1.5 text-xs w-[150px]" title="Theme">
+              <PaletteIcon class="size-3.5 shrink-0 opacity-70" />
+              <SelectValue placeholder="Theme" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="t in THEMES" :key="t.id" :value="t.id">{{ t.label }}</SelectItem>
+            </SelectContent>
+          </Select>
           <Button variant="ghost" size="icon-sm" title="Manage agents" @click="openAgents">
             <Settings2Icon class="size-4" />
           </Button>
