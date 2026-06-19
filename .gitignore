@@ -3,7 +3,7 @@
 
 # Node / frontend
 **/node_modules
-crates/kiro_tauri/ui/dist
+crates/acpc_app/ui/dist
 
 # OS / editor
 .DS_Store
@@ -13,3 +13,6 @@ crates/kiro_tauri/ui/dist
 
 # Local runtime data (chats, agents, api keys)
 .kiroui
+
+# Tauri generated
+crates/acpc_app/gen

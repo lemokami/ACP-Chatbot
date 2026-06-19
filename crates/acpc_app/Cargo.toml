@@ -1,0 +1,22 @@
+[package]
+name = "acpc_app"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "acpc_app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+acpc_protocol = { path = "../acpc_protocol" }
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+rfd = "0.15"

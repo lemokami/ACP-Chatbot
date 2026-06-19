@@ -1,4 +1,4 @@
-# KiroUI dev tasks. Run `just <task>`.
+# ACP Chatbot dev tasks. Run `just <task>`.
 
 # Build the whole workspace.
 build:
@@ -6,7 +6,7 @@ build:
 
 # Build only the headless protocol crate (fast; no gpui).
 build-acp:
-    cargo build -p kiro_acp
+    cargo build -p acpc_protocol
 
 # Run all tests.
 test:
@@ -14,7 +14,7 @@ test:
 
 # Run only the protocol crate tests (fast).
 test-acp:
-    cargo test -p kiro_acp
+    cargo test -p acpc_protocol
 
 # Lint.
 clippy:
@@ -30,17 +30,17 @@ fmt-check:
 
 # Run the GPUI app.
 run:
-    cargo run -p kiro_ui
+    cargo run -p acpc_app
 
 # Headless protocol examples.
 example-spawn:
-    cargo run -p kiro_acp --example spawn
+    cargo run -p acpc_protocol --example spawn
 
 example-handshake:
-    cargo run -p kiro_acp --example handshake
+    cargo run -p acpc_protocol --example handshake
 
 example-chat:
-    cargo run -p kiro_acp --example chat -- "hello"
+    cargo run -p acpc_protocol --example chat -- "hello"
 
 example-bridge:
-    cargo run -p kiro_acp --example bridge
+    cargo run -p acpc_protocol --example bridge

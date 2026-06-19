@@ -1,66 +1,130 @@
-# KiroUI
+# ACP Chatbot
 
-A native, GPU-accelerated desktop client for [`kiro-cli`](https://kiro.dev), built
-in Rust with [GPUI](https://www.gpui.rs/). KiroUI spawns `kiro-cli acp` as a
-headless subprocess and talks to it over the
-[Agent Client Protocol](https://agentclientprotocol.com) (ACP, JSON-RPC 2.0 over
-stdio), giving you a chat UI with streaming responses, markdown rendering, tool
-visualization, and an approval flow — without living in the terminal.
+A native desktop chat client for **any [ACP](https://agentclientprotocol.com)
+(Agent Client Protocol) agent** — bring your own agent (kiro‑cli, Gemini CLI,
+Claude Code, or a custom one) and your own provider credentials, and chat with a
+polished, app‑like UI.
 
-## Workspace layout
+It's built as a small Rust engine that speaks ACP (JSON‑RPC 2.0 over stdio) to a
+headless agent subprocess, wrapped in a [Tauri](https://tauri.app) desktop shell
+with a [Vue 3](https://vuejs.org) + [AI Elements](https://www.ai-elements-vue.com)
+frontend.
+
+## Features
+
+- **Connect any ACP agent** — configure command, arguments, working directory,
+  and per‑agent environment variables (API keys). Built‑in presets for Kiro CLI,
+  Gemini CLI, and Claude Code; add your own. Connect / disconnect with one click.
+- **Modern chat UX** — streaming responses, Markdown + syntax‑highlighted code,
+  collapsible "thinking", tool‑call cards, and an inline permission/approval flow.
+- **Persistent history** — chats are saved locally, listed in the sidebar,
+  reopenable across restarts, with editable titles and delete.
+- **Attachments** — send images and files to capable agents.
+- **Model selection** & **slash commands** — surfaced from the agent over ACP.
+
+## Architecture
+
+A Cargo workspace with a clean split — the protocol engine is UI‑agnostic and
+fully unit‑tested without any UI.
 
 | Crate | Role |
 |-------|------|
-| `kiro_acp` | Headless protocol/runtime: subprocess management, the ACP `Client` implementation, a thread bridge exposing a `Command`/`Event` channel API, a settings model, and client-side fs/terminal handlers. Fully unit/integration tested without any UI. |
-| `kiro_core` | Framework-independent application state (`AppState` command/event state machine), a Markdown block parser, and a lightweight syntax-highlight tokenizer. Pure logic, unit tested without GPUI. |
-| `kiro_ui` | The GPUI binary: window, views (sidebar, chat, input, tool blocks, permission dialog), the event pump, and Markdown/syntax rendering. |
+| `acpc_protocol` | Headless ACP engine: subprocess management, the ACP `Client` implementation, a thread bridge exposing a serializable `Command`/`Event` channel API, a JSON‑RPC id‑compat shim, settings, and fs/terminal handlers. |
+| `acpc_core` | Framework‑independent state machine + Markdown/syntax helpers (pure logic, unit‑tested; legacy support crate). |
+| `acpc_app` | The Tauri desktop app: Rust backend (commands + event forwarding + agent profiles + chat persistence) and the Vue 3 web frontend under `ui/`. |
 
-The protocol thread (single-threaded tokio + `LocalSet`, because the ACP
-futures are `!Send`) is isolated from the GPUI main thread; the two communicate
-only through serializable `Command`/`Event` enums over channels.
+The ACP futures are `!Send`, so they run on a dedicated thread (current‑thread
+Tokio + `LocalSet`); the UI thread and protocol thread communicate only through
+serializable `Command`/`Event` enums.
+
+```
+┌─ Webview (Vue 3 + AI Elements) ─┐  invoke()   ┌─ Tauri backend (Rust) ─┐  stdio  ┌────────────┐
+│  chat UI, agents, history       │ ─────────►  │  acpc_protocol engine  │ ──────► │  ACP agent │
+│                                 │ ◄─────────  │  (bridge + id‑shim)    │ ◄────── │ subprocess │
+└─────────────────────────────────┘ acp-event   └────────────────────────┘         └────────────┘
+```
 
 ## Prerequisites
 
-- macOS with Xcode and the **Metal Toolchain** (`xcodebuild -downloadComponent MetalToolchain`) — required to compile GPUI's Metal shaders.
-- Rust 1.96+ (pinned via `rust-toolchain.toml`).
-- `kiro-cli` installed and authenticated (browser login).
+- **macOS** with Xcode and the **Metal Toolchain**
+  (`xcodebuild -downloadComponent MetalToolchain`) — required to compile Tauri's
+  Metal shaders. (Other platforms work too; build on that OS.)
+- **Rust 1.96+** (pinned via `rust-toolchain.toml`).
+- **Node.js 18+** (to build the web frontend).
+- **An ACP agent installed and on `PATH`** — e.g. `kiro-cli`, `gemini`, or
+  `npx` (for the Claude Code adapter). ACP Chatbot is a *client*; it spawns the
+  agent you choose.
 
-## Running
-
-```bash
-cargo run -p kiro_ui          # launch the desktop app
-just run                      # same, via the justfile
-```
-
-Headless protocol demos (no GUI):
+## Develop
 
 ```bash
-cargo run -p kiro_acp --example handshake   # ACP initialize against real kiro-cli
-cargo run -p kiro_acp --example chat -- "hello"
-cargo run -p kiro_acp --example bridge -- "ping"
+# 1. Build the web frontend (embedded into the app)
+cd crates/acpc_app/ui && npm install && npm run build
+
+# 2. Run the desktop app (debug)
+cd ../../.. && cargo run -p acpc_app
 ```
 
-## Configuration
-
-Drop an `acp_settings.json` next to where you launch the app (see
-`acp_settings.json.example`):
-
-```json
-{
-  "autoApprovePermissions": "ask",   // or "allow_all"
-  "cwd": null,
-  "env": [{ "name": "FOO", "value": "bar" }]
-}
-```
-
-- `ask` (default): every tool permission request is surfaced to the UI.
-- `allow_all`: non-destructive requests are auto-approved; destructive/elevated
-  operations (e.g. `rm`, `sudo`, `delete`) still prompt.
-
-## Development
+Headless protocol demos (no GUI), useful for hacking on the engine:
 
 ```bash
-just test         # cargo test (all crates)
-just clippy       # cargo clippy --all-targets -D warnings
-just fmt-check    # cargo fmt --all -- --check
+cargo run -p acpc_protocol --example handshake     # ACP initialize against a real agent
+cargo run -p acpc_protocol --example chat -- "hi"
+cargo run -p acpc_protocol --example bridge -- "ping"
 ```
+
+Tests / lint:
+
+```bash
+cargo test                                   # engine + core (45 tests)
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
+## Build & distribute
+
+The Tauri app *is* the `acpc_app` crate (no `src-tauri/` folder), so:
+
+```bash
+cd crates/acpc_app/ui && npm run build          # production frontend
+cd ..                                           # crates/acpc_app
+ui/node_modules/.bin/tauri build                # release build + .app + .dmg
+```
+
+Artifacts land in `target/release/bundle/` (`macos/ACP Chatbot.app`,
+`dmg/*.dmg`). Builds are **per‑OS** (Tauri can't cross‑compile); use CI
+(`tauri-action`) for multi‑platform releases.
+
+> Distributed builds are **unsigned** by default — recipients must right‑click →
+> Open (macOS Gatekeeper). For frictionless installs, codesign + notarize with an
+> Apple Developer ID.
+
+## Configuring agents
+
+Click the **gear** in the header to manage agents. For each agent set the
+`command`, `args`, optional working directory, and **environment variables**
+(e.g. `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`). Hit **Connect**. Presets:
+
+| Agent | Command | Env |
+|-------|---------|-----|
+| Kiro CLI | `kiro-cli acp` | — |
+| Gemini CLI | `gemini --experimental-acp` | `GEMINI_API_KEY` |
+| Claude Code | `npx -y @zed-industries/claude-code-acp` | `ANTHROPIC_API_KEY` |
+
+## Data & configuration
+
+| Path | Contents |
+|------|----------|
+| `~/.acp-chatbot/agents.json` | Configured agents + active selection |
+| `~/.acp-chatbot/chats/*.json` | Saved chat transcripts |
+| `~/.acp-chatbot/workspace/` | Clean working dir used for context‑free chats |
+| `acp_settings.json` (cwd) | Optional: `autoApprovePermissions` (`ask`/`allow_all`), `cwd`, `env` |
+
+## Tech stack
+
+Rust · `agent-client-protocol` · Tokio · Tauri 2 · Vue 3 · Tailwind CSS 4 ·
+shadcn‑vue · AI Elements Vue · marked · highlight.js.
+
+## License
+
+Apache‑2.0.

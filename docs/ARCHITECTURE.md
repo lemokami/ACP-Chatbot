@@ -1,4 +1,4 @@
-# KiroUI — Architecture
+# ACP Chatbot — Architecture
 
 A native desktop client for [`kiro-cli`](https://kiro.dev) that speaks the
 [Agent Client Protocol](https://agentclientprotocol.com) (ACP, JSON-RPC 2.0 over
@@ -22,9 +22,9 @@ The result is a **3-crate Cargo workspace**:
 
 | Crate | Depends on | Role | Tests |
 |-------|-----------|------|-------|
-| `kiro_acp` | — (protocol crates) | Subprocess + ACP client + thread bridge + settings + fs/terminal handlers | 21 |
-| `kiro_core` | `kiro_acp` | Framework-free `AppState`, Markdown parser, syntax tokenizer | 24 |
-| `kiro_ui` | `kiro_core`, `gpui` | GPUI window, views, event pump, rendering | — |
+| `acpc_protocol` | — (protocol crates) | Subprocess + ACP client + thread bridge + settings + fs/terminal handlers | 21 |
+| `acpc_core` | `acpc_protocol` | Framework-free `AppState`, Markdown parser, syntax tokenizer | 24 |
+| `acpc_app` | `acpc_core`, `gpui` | GPUI window, views, event pump, rendering | — |
 
 ---
 
@@ -32,10 +32,10 @@ The result is a **3-crate Cargo workspace**:
 
 ```
 ┌─ GPUI main thread ──────────────────┐         ┌─ protocol thread (current-thread tokio + LocalSet) ─┐
-│ kiro_ui::WorkspaceView              │ Command │ kiro_acp::bridge                                     │
+│ acpc_app::WorkspaceView              │ Command │ acpc_protocol::bridge                                     │
 │   holds Entity<AppState>            │ ──────► │   command loop                                       │
 │   event pump (cx.spawn, ~8ms poll)  │         │   ClientSideConnection (ACP, !Send futures)          │  stdio   ┌──────────┐
-│ kiro_core::AppState                 │         │     ▲          │                                     │ ───────► │ kiro-cli │
+│ acpc_core::AppState                 │         │     ▲          │                                     │ ───────► │ kiro-cli │
 │   apply_event(Event) + cx.notify()  │ ◄────── │     │ KiroClient (request_permission, fs/*, term/*)  │ ◄─────── │   acp    │
 └──────────────────────────────────────┘  Event │     └── idshim (string↔int JSON-RPC ids)             │          └──────────┘
                                                  │           └── Subprocess (spawn/kill, piped stdio)   │
@@ -52,7 +52,7 @@ The result is a **3-crate Cargo workspace**:
 
 ## 3. The Command / Event contract
 
-This enum pair (in `kiro_acp::protocol`) is the entire public surface between
+This enum pair (in `acpc_protocol::protocol`) is the entire public surface between
 "a UI" and "the agent runtime".
 
 ```text
@@ -80,7 +80,7 @@ protocol types.
 
 ## 4. Crate-by-crate
 
-### `kiro_acp` — protocol & runtime (headless)
+### `acpc_protocol` — protocol & runtime (headless)
 
 | File | Responsibility |
 |------|----------------|
@@ -93,7 +93,7 @@ protocol types.
 | `attachment.rs` | Classify files (image vs other), MIME detection, `file://` URIs, base64 encoding. |
 | `bin/mock_agent.rs` | A scripted ACP agent used by tests/examples (flags for tools, permission, crash, bad version). |
 
-### `kiro_core` — application logic (no GPUI)
+### `acpc_core` — application logic (no GPUI)
 
 | File | Responsibility |
 |------|----------------|
@@ -101,7 +101,7 @@ protocol types.
 | `markdown.rs` | Block-level Markdown parser (`parse(&str) -> Vec<Block>`). |
 | `highlight.rs` | Dependency-free syntax tokenizer for fenced code blocks. |
 
-### `kiro_ui` — GPUI presentation
+### `acpc_app` — GPUI presentation
 
 | File | Responsibility |
 |------|----------------|
@@ -140,7 +140,7 @@ protocol types.
   integers. The shim makes them interoperate without forking the crate.
 - **Dedicated protocol thread.** ACP futures are `!Send`; isolating them keeps the
   UI responsive and the threading model simple.
-- **GPUI-free core.** `kiro_acp` + `kiro_core` carry all logic and 45 tests;
+- **GPUI-free core.** `acpc_protocol` + `acpc_core` carry all logic and 45 tests;
   GPUI is a thin rendering shell over a tested state machine.
 - **Lightweight syntax highlighter** instead of `syntect` — avoids heavy syntax/
   theme asset loading and is unit-testable.
@@ -149,11 +149,11 @@ protocol types.
 
 ## 7. Testing strategy
 
-- `kiro_acp` integration tests drive a **scripted `mock_agent` binary** as a real
+- `acpc_protocol` integration tests drive a **scripted `mock_agent` binary** as a real
   subprocess (handshake, prompt round-trip, tool calls, permission loop, crash
   detection, missing binary). fs/terminal/permission handlers are unit-tested
   directly.
-- `kiro_core` unit tests cover every `apply_event` transition, submit/attachment/
+- `acpc_core` unit tests cover every `apply_event` transition, submit/attachment/
   model flows, the Markdown parser, and the syntax tokenizer.
 - The `examples/` (`handshake`, `chat`, `bridge`) exercise the **real** `kiro-cli`
   from the terminal using the same `Command`/`Event` API the GUI uses.
@@ -163,14 +163,14 @@ protocol types.
 ## 8. Putting a different UI on top (Electron / Tauri / web)
 
 **Is it easy? Yes — the architecture was built for it.** The UI only ever talks
-to `kiro_acp::bridge` through the `Command`/`Event` enums. Any frontend that can
-produce `Command`s and consume `Event`s is a drop-in replacement for `kiro_ui`.
+to `acpc_protocol::bridge` through the `Command`/`Event` enums. Any frontend that can
+produce `Command`s and consume `Event`s is a drop-in replacement for `acpc_app`.
 There is exactly one thing to add for a cross-language frontend: a transport.
 
 ### Option A — Tauri (recommended)
 Tauri keeps the **Rust core unchanged** and runs a web frontend (React/Svelte/…)
 in the same process.
-- Reuse `kiro_acp` + `kiro_core` as-is.
+- Reuse `acpc_protocol` + `acpc_core` as-is.
 - Map Tauri **commands** to our `Command`s and Tauri **events** to our `Event`s.
 - Drain `BridgeHandle::events` in a Tauri async task and `app.emit("acp-event", …)`.
 - Effort: low. No second process, no protocol re-implementation. Add
@@ -179,17 +179,17 @@ in the same process.
 ### Option B — Electron (or any web app over a socket)
 Electron is a separate Node/Chromium process, so it needs an explicit IPC bridge.
 Two sub-options:
-1. **Wrap `kiro_acp` in a tiny server**: a Rust binary that exposes the bridge
+1. **Wrap `acpc_protocol` in a tiny server**: a Rust binary that exposes the bridge
    over a local WebSocket/stdio, serializing `Command`/`Event` as JSON. Electron
-   connects to it. Reuses all of `kiro_acp`/`kiro_core`. Moderate effort.
-2. **Talk ACP directly**: skip `kiro_acp` and have Electron use the official
+   connects to it. Reuses all of `acpc_protocol`/`acpc_core`. Moderate effort.
+2. **Talk ACP directly**: skip `acpc_protocol` and have Electron use the official
    TypeScript ACP SDK to drive `kiro-cli acp` itself. You'd then re-implement (in
-   TS) the things `kiro_acp` provides — the **id shim is NOT needed** (the TS SDK
+   TS) the things `acpc_protocol` provides — the **id shim is NOT needed** (the TS SDK
    handles string ids), but you'd re-do settings, terminal handling, the
    permission flow, and state management. Higher effort, but no Rust at all.
 
 ### Option C — any native toolkit (egui, Slint, Qt via FFI, …)
-Same as `kiro_ui`: depend on `kiro_core`, hold the `BridgeHandle`, pump events
+Same as `acpc_app`: depend on `acpc_core`, hold the `BridgeHandle`, pump events
 into your widgets. Low effort for Rust toolkits; FFI for C++/Qt.
 
 ### What needs to change in this repo to support cross-process UIs
@@ -217,10 +217,10 @@ choice if you want a web-based UI without throwing away the Rust core.**
 ## 9. Build & run
 
 ```bash
-cargo run -p kiro_ui            # launch the desktop app
+cargo run -p acpc_app            # launch the desktop app
 just test                       # all crates
 just clippy                     # cargo clippy --all-targets -D warnings
-cargo run -p kiro_acp --example chat -- "hello"   # headless, no GUI
+cargo run -p acpc_protocol --example chat -- "hello"   # headless, no GUI
 ```
 
 Prerequisites: macOS + Xcode **Metal Toolchain**

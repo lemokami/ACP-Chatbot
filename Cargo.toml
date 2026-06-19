@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/kiro_acp", "crates/kiro_core", "crates/kiro_tauri", "crates/kiro_ui"]
+members = ["crates/acpc_protocol", "crates/acpc_core", "crates/acpc_app"]
 
 [workspace.package]
 edition = "2021"

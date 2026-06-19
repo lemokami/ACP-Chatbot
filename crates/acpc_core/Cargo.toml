@@ -1,0 +1,13 @@
+[package]
+name = "acpc_core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "acpc_core"
+path = "src/lib.rs"
+
+[dependencies]
+acpc_protocol = { path = "../acpc_protocol" }
+pulldown-cmark.workspace = true
