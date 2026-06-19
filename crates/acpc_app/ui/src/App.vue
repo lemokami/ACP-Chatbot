@@ -87,10 +87,31 @@ const state = reactive({
   connectedAgentId: "" as string,
   showAgents: false,
   theme: "clay" as string,
+  permMode: "ask" as string,
+  allowlist: [] as string[],
+  settingsTab: "appearance" as string,
 });
 // Apply the saved theme immediately and sync it into state.
 state.theme = initTheme();
 function onThemeChange(v: any) { if (v) applyTheme(v); }
+const APP_VERSION = "0.1.1";
+const settingsTabs = [
+  { id: "appearance", label: "Appearance" },
+  { id: "agents", label: "Agents" },
+  { id: "behavior", label: "Behavior" },
+  { id: "about", label: "About" },
+];
+function saveSettings() {
+  invoke("save_settings", {
+    settings: {
+      autoApprovePermissions: state.permMode,
+      allowlist: state.allowlist.filter((s) => s.trim()),
+    },
+  });
+}
+function addAllowEntry() { state.allowlist.push(""); }
+function removeAllowEntry(i: number) { state.allowlist.splice(i, 1); saveSettings(); }
+function reconnectToApply() { if (connectedAgent.value) connectAgent(connectedAgent.value); }
 
 const ta = ref<HTMLTextAreaElement | null>(null);
 const slashIndex = ref(0);
@@ -413,6 +434,13 @@ async function boot() {
     state.activeAgentId = store.activeId || state.agents[0]?.id || "";
   } catch { /* defaults missing */ }
 
+  // Load persisted app settings (permission policy + allowlist).
+  try {
+    const s: any = await invoke("load_settings");
+    state.permMode = s.autoApprovePermissions || "ask";
+    state.allowlist = s.allowlist || [];
+  } catch { /* defaults */ }
+
   await listen("acp-event", (e: any) => applyEvent(e.payload));
   await nextTick();
   connectActive();
@@ -601,66 +629,111 @@ boot();
 
     <!-- Agent management -->
     <Dialog v-model:open="state.showAgents">
-      <DialogContent class="sm:max-w-2xl max-h-[82vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Choose a theme and connect any ACP-compatible agent.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent class="sm:max-w-3xl p-0 overflow-hidden gap-0">
+        <div class="flex h-[72vh]">
+          <nav class="w-40 shrink-0 border-r bg-sidebar p-2 flex flex-col gap-1">
+            <DialogTitle class="px-2 pt-1.5 pb-2 text-sm font-semibold">Settings</DialogTitle>
+            <button v-for="t in settingsTabs" :key="t.id"
+              class="w-full text-left px-2.5 py-1.5 rounded-md text-sm transition-colors"
+              :class="state.settingsTab === t.id ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-muted text-muted-foreground'"
+              @click="state.settingsTab = t.id">{{ t.label }}</button>
+          </nav>
 
-        <div class="space-y-4 py-2">
-          <!-- Appearance -->
-          <div class="space-y-1.5">
-            <div class="text-xs font-medium text-muted-foreground">Theme</div>
-            <Select v-model="state.theme" @update:modelValue="onThemeChange">
-              <SelectTrigger class="h-9 w-full gap-2">
-                <PaletteIcon class="size-4 shrink-0 opacity-70" />
-                <SelectValue placeholder="Select theme" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="t in THEMES" :key="t.id" :value="t.id">{{ t.label }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div class="text-xs font-medium text-muted-foreground pt-1">Agents</div>
-          <div v-for="a in state.agents" :key="a.id" class="rounded-lg border p-3 space-y-2"
-            :class="state.connectedAgentId === a.id && state.conn === 'connected' ? 'border-primary/60' : ''">
-            <div class="flex items-center gap-2">
-              <Input v-model="a.name" placeholder="Agent name" class="h-8 font-medium" />
-              <span v-if="state.connectedAgentId === a.id && state.conn === 'connected'"
-                class="text-[11px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 shrink-0">Connected</span>
-              <Button v-if="state.connectedAgentId === a.id && state.conn === 'connected'"
-                size="sm" variant="outline" class="shrink-0" @click="disconnect">Disconnect</Button>
-              <Button v-else size="sm" class="shrink-0" :disabled="!a.command.trim()" @click="connectAgent(a)">Connect</Button>
-              <Button variant="ghost" size="icon-sm" title="Remove" class="shrink-0" @click="removeAgent(a)">
-                <Trash2Icon class="size-4 text-destructive" />
-              </Button>
-            </div>
-            <div class="grid grid-cols-3 gap-2">
-              <Input v-model="a.command" placeholder="command" class="h-8 text-xs font-mono" />
-              <Input v-model="a.argsText" placeholder="arguments (space-separated)" class="h-8 text-xs font-mono col-span-2" />
-            </div>
-            <Input v-model="a.cwd" placeholder="working directory (optional)" class="h-8 text-xs font-mono" />
-            <div class="space-y-1.5">
-              <div class="text-xs text-muted-foreground">Environment variables (API keys)</div>
-              <div v-for="(e, idx) in a.env" :key="idx" class="flex gap-2">
-                <Input v-model="e.name" placeholder="NAME" class="h-8 text-xs font-mono w-1/3" />
-                <Input v-model="e.value" type="password" placeholder="value" class="h-8 text-xs font-mono flex-1" />
-                <Button variant="ghost" size="icon-sm" @click="removeEnv(a, idx)"><XIcon class="size-4" /></Button>
+          <div class="flex-1 overflow-y-auto p-5">
+            <div v-if="state.settingsTab === 'appearance'" class="space-y-3">
+              <h3 class="text-sm font-semibold">Theme</h3>
+              <div class="grid grid-cols-2 gap-2">
+                <button v-for="t in THEMES" :key="t.id"
+                  class="rounded-lg border p-2 text-left transition-colors"
+                  :class="state.theme === t.id ? 'border-primary ring-1 ring-primary' : 'hover:border-muted-foreground/40'"
+                  @click="state.theme = t.id; onThemeChange(t.id)">
+                  <div class="h-10 rounded-md mb-1.5 flex items-center justify-end gap-1 px-1.5 border"
+                    :style="{ backgroundColor: t.preview.bg }">
+                    <span class="size-3 rounded-full" :style="{ backgroundColor: t.preview.primary }"></span>
+                    <span class="size-3 rounded-full" :style="{ backgroundColor: t.preview.fg }"></span>
+                  </div>
+                  <span class="text-xs">{{ t.label }}</span>
+                </button>
               </div>
-              <Button variant="outline" size="xs" @click="addEnv(a)">
-                <PlusIcon class="size-3" /> Add variable
+            </div>
+
+            <div v-else-if="state.settingsTab === 'agents'" class="space-y-4">
+              <div v-for="a in state.agents" :key="a.id" class="rounded-lg border p-3 space-y-2"
+                :class="state.connectedAgentId === a.id && state.conn === 'connected' ? 'border-primary/60' : ''">
+                <div class="flex items-center gap-2">
+                  <Input v-model="a.name" placeholder="Agent name" class="h-8 font-medium" />
+                  <span v-if="state.connectedAgentId === a.id && state.conn === 'connected'"
+                    class="text-[11px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 shrink-0">Connected</span>
+                  <Button v-if="state.connectedAgentId === a.id && state.conn === 'connected'"
+                    size="sm" variant="outline" class="shrink-0" @click="disconnect">Disconnect</Button>
+                  <Button v-else size="sm" class="shrink-0" :disabled="!a.command.trim()" @click="connectAgent(a)">Connect</Button>
+                  <Button variant="ghost" size="icon-sm" title="Remove" class="shrink-0" @click="removeAgent(a)">
+                    <Trash2Icon class="size-4 text-destructive" />
+                  </Button>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                  <Input v-model="a.command" placeholder="command" class="h-8 text-xs font-mono" />
+                  <Input v-model="a.argsText" placeholder="arguments (space-separated)" class="h-8 text-xs font-mono col-span-2" />
+                </div>
+                <Input v-model="a.cwd" placeholder="working directory (optional)" class="h-8 text-xs font-mono" />
+                <div class="space-y-1.5">
+                  <div class="text-xs text-muted-foreground">Environment variables (API keys)</div>
+                  <div v-for="(e, idx) in a.env" :key="idx" class="flex gap-2">
+                    <Input v-model="e.name" placeholder="NAME" class="h-8 text-xs font-mono w-1/3" />
+                    <Input v-model="e.value" type="password" placeholder="value" class="h-8 text-xs font-mono flex-1" />
+                    <Button variant="ghost" size="icon-sm" @click="removeEnv(a, idx)"><XIcon class="size-4" /></Button>
+                  </div>
+                  <Button variant="outline" size="xs" @click="addEnv(a)">
+                    <PlusIcon class="size-3" /> Add variable
+                  </Button>
+                </div>
+              </div>
+              <Button variant="outline" class="w-full" @click="addAgent">
+                <PlusIcon class="size-4" /> Add agent
               </Button>
             </div>
+
+            <div v-else-if="state.settingsTab === 'behavior'" class="space-y-4">
+              <div class="space-y-1.5">
+                <h3 class="text-sm font-semibold">Tool permissions</h3>
+                <Select v-model="state.permMode" @update:modelValue="saveSettings">
+                  <SelectTrigger class="h-9 w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ask">Ask for every request</SelectItem>
+                    <SelectItem value="allowlist">Auto-approve allowlisted only</SelectItem>
+                    <SelectItem value="allow_all">Auto-approve all (non-destructive)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p class="text-xs text-muted-foreground">
+                  Destructive operations (rm, sudo, delete, force push, reset --hard, chmod 777) are never auto-approved.
+                </p>
+              </div>
+
+              <div v-if="state.permMode === 'allowlist'" class="space-y-1.5">
+                <div class="text-xs font-medium text-muted-foreground">Allowlist patterns (matched in tool titles)</div>
+                <div v-for="(p, i) in state.allowlist" :key="i" class="flex gap-2">
+                  <Input v-model="state.allowlist[i]" placeholder="e.g. read file" class="h-8 text-xs" @blur="saveSettings" />
+                  <Button variant="ghost" size="icon-sm" @click="removeAllowEntry(i)"><XIcon class="size-4" /></Button>
+                </div>
+                <Button variant="outline" size="xs" @click="addAllowEntry"><PlusIcon class="size-3" /> Add pattern</Button>
+              </div>
+
+              <p v-if="state.conn === 'connected'" class="text-xs text-muted-foreground">
+                Changes apply on reconnect.
+                <button class="underline" @click="reconnectToApply">Reconnect now</button>
+              </p>
+            </div>
+
+            <div v-else class="space-y-2 text-sm">
+              <h3 class="text-base font-semibold">JustChat</h3>
+              <p class="text-muted-foreground">Version {{ APP_VERSION }} — a desktop client for any ACP agent.</p>
+              <p><a class="text-primary underline" href="https://github.com/lemokami/justchat" target="_blank">github.com/lemokami/justchat</a></p>
+              <p><a class="text-primary underline" href="https://lemokami.github.io/justchat/" target="_blank">Website</a></p>
+            </div>
           </div>
-          <Button variant="outline" class="w-full" @click="addAgent">
-            <PlusIcon class="size-4" /> Add agent
-          </Button>
         </div>
 
-        <DialogFooter>
+        <DialogFooter class="px-5 py-3 border-t">
           <Button variant="outline" @click="closeAgents">Done</Button>
         </DialogFooter>
       </DialogContent>

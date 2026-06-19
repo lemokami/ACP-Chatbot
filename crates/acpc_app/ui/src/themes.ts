@@ -6,21 +6,22 @@ export interface ThemeDef {
   id: string;
   label: string;
   dark: boolean;
+  preview: { bg: string; primary: string; fg: string };
 }
 
 export const THEMES: ThemeDef[] = [
-  { id: "clay-dark", label: "Clay (Dark)", dark: true },
-  { id: "clay", label: "Clay (Light)", dark: false },
-  { id: "light", label: "Light", dark: false },
-  { id: "dark", label: "Dark", dark: true },
-  { id: "dracula", label: "Dracula", dark: true },
-  { id: "nord", label: "Nord", dark: true },
-  { id: "tokyo-night", label: "Tokyo Night", dark: true },
-  { id: "catppuccin-mocha", label: "Catppuccin Mocha", dark: true },
-  { id: "rose-pine", label: "Rosé Pine", dark: true },
-  { id: "gruvbox-dark", label: "Gruvbox Dark", dark: true },
-  { id: "solarized-light", label: "Solarized Light", dark: false },
-  { id: "solarized-dark", label: "Solarized Dark", dark: true },
+  { id: "clay-dark", label: "Clay (Dark)", dark: true, preview: { bg: "#2a2622", primary: "#c8693f", fg: "#ece7df" } },
+  { id: "clay", label: "Clay (Light)", dark: false, preview: { bg: "#f4f1ea", primary: "#bd5d3a", fg: "#2b2722" } },
+  { id: "light", label: "Light", dark: false, preview: { bg: "#ffffff", primary: "#1c1c20", fg: "#0a0a0b" } },
+  { id: "dark", label: "Dark", dark: true, preview: { bg: "#0a0a0b", primary: "#e4e4e7", fg: "#fafafa" } },
+  { id: "dracula", label: "Dracula", dark: true, preview: { bg: "#282a36", primary: "#bd93f9", fg: "#f8f8f2" } },
+  { id: "nord", label: "Nord", dark: true, preview: { bg: "#2e3440", primary: "#88c0d0", fg: "#eceff4" } },
+  { id: "tokyo-night", label: "Tokyo Night", dark: true, preview: { bg: "#1a1b26", primary: "#7aa2f7", fg: "#c0caf5" } },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha", dark: true, preview: { bg: "#1e1e2e", primary: "#cba6f7", fg: "#cdd6f4" } },
+  { id: "rose-pine", label: "Rosé Pine", dark: true, preview: { bg: "#191724", primary: "#ebbcba", fg: "#e0def4" } },
+  { id: "gruvbox-dark", label: "Gruvbox Dark", dark: true, preview: { bg: "#282828", primary: "#fe8019", fg: "#ebdbb2" } },
+  { id: "solarized-light", label: "Solarized Light", dark: false, preview: { bg: "#fdf6e3", primary: "#268bd2", fg: "#586e75" } },
+  { id: "solarized-dark", label: "Solarized Dark", dark: true, preview: { bg: "#002b36", primary: "#268bd2", fg: "#93a1a1" } },
 ];
 
 export const DEFAULT_THEME = "clay-dark";

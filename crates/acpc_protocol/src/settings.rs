@@ -5,26 +5,33 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Auto-approval policy for tool permission requests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AutoApprove {
     /// Surface every permission request to the user (default; safest).
     #[default]
     Ask,
+    /// Auto-approve only requests matching the user's allowlist; everything
+    /// else is surfaced. Destructive/elevated operations are never approved.
+    Allowlist,
     /// Automatically approve non-destructive requests; still prompt for
     /// destructive/elevated operations.
     AllowAll,
 }
 
 /// JustChat settings, typically deserialized from `acp_settings.json`.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     /// Permission auto-approval policy.
     pub auto_approve_permissions: AutoApprove,
+    /// Case-insensitive substring patterns matched against the tool-call title;
+    /// used to auto-approve requests in [`AutoApprove::Allowlist`] mode.
+    #[serde(default)]
+    pub allowlist: Vec<String>,
     /// Optional working directory override for the agent/session.
     pub cwd: Option<PathBuf>,
     /// Extra environment variables to inject into the agent subprocess.
@@ -33,7 +40,7 @@ pub struct Settings {
 }
 
 /// A single environment variable entry in settings.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EnvPair {
     /// Variable name.
     pub name: String,
@@ -60,10 +67,25 @@ impl Settings {
     /// Only applies in [`AutoApprove::AllowAll`] mode, and never for operations
     /// that look destructive or privilege-elevating.
     pub fn should_auto_approve(&self, title: &str) -> bool {
-        if self.auto_approve_permissions != AutoApprove::AllowAll {
+        // Destructive/elevated operations are never auto-approved, in any mode.
+        if is_destructive(title) {
             return false;
         }
-        !is_destructive(title)
+        match self.auto_approve_permissions {
+            AutoApprove::Ask => false,
+            AutoApprove::AllowAll => true,
+            AutoApprove::Allowlist => self.matches_allowlist(title),
+        }
+    }
+
+    /// Case-insensitive substring match of `title` against any allowlist entry.
+    fn matches_allowlist(&self, title: &str) -> bool {
+        let t = title.to_lowercase();
+        self.allowlist
+            .iter()
+            .map(|p| p.trim().to_lowercase())
+            .filter(|p| !p.is_empty())
+            .any(|p| t.contains(&p))
     }
 }
 
@@ -124,6 +146,29 @@ mod tests {
         assert!(!s.should_auto_approve("rm -rf /tmp/x"));
         assert!(!s.should_auto_approve("sudo apt install"));
         assert!(!s.should_auto_approve("delete the database"));
+    }
+
+    #[test]
+    fn allowlist_only_approves_matches() {
+        let s = Settings {
+            auto_approve_permissions: AutoApprove::Allowlist,
+            allowlist: vec!["read file".into(), "list directory".into()],
+            ..Default::default()
+        };
+        assert!(s.should_auto_approve("Read file foo.txt"));
+        assert!(s.should_auto_approve("List directory /tmp"));
+        assert!(!s.should_auto_approve("Run command echo hi"));
+    }
+
+    #[test]
+    fn allowlist_never_approves_destructive() {
+        let s = Settings {
+            auto_approve_permissions: AutoApprove::Allowlist,
+            allowlist: vec!["rm".into(), "delete".into()],
+            ..Default::default()
+        };
+        assert!(!s.should_auto_approve("rm -rf /tmp/x"));
+        assert!(!s.should_auto_approve("delete everything"));
     }
 
     #[test]

@@ -141,6 +141,24 @@ fn save_agents(store: AgentStore) {
     }
 }
 
+/// Load persisted app settings (permission policy + allowlist).
+#[tauri::command]
+fn load_settings() -> Settings {
+    Settings::load(settings_file()).unwrap_or_default()
+}
+
+/// Persist app settings.
+#[tauri::command]
+fn save_settings(settings: Settings) {
+    if let Ok(text) = serde_json::to_string_pretty(&settings) {
+        let _ = std::fs::write(settings_file(), text);
+    }
+}
+
+fn settings_file() -> PathBuf {
+    kiroui_dir().join("settings.json")
+}
+
 // ---- Chat transcript persistence -----------------------------------------
 
 fn safe_id(id: &str) -> String {
@@ -222,9 +240,13 @@ fn build_config(agent: &AgentProfile) -> BridgeConfig {
         sub.env.push(("PATH".into(), path.into()));
     }
 
-    // Auto-approve policy comes from acp_settings.json (if present).
-    let launch_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let settings = Settings::load(launch_dir.join("acp_settings.json")).unwrap_or_default();
+    // Permission policy: app settings file first, else legacy acp_settings.json.
+    let settings = if settings_file().exists() {
+        Settings::load(settings_file()).unwrap_or_default()
+    } else {
+        let launch_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        Settings::load(launch_dir.join("acp_settings.json")).unwrap_or_default()
+    };
 
     BridgeConfig {
         subprocess: sub,
@@ -361,7 +383,9 @@ fn main() {
             save_chat,
             delete_chat,
             load_agents,
-            save_agents
+            save_agents,
+            load_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
