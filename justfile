@@ -44,3 +44,11 @@ example-chat:
 
 example-bridge:
     cargo run -p acpc_protocol --example bridge
+
+# Build the production frontend + signed .app and DMG.
+# Detaches stale DMG volumes first so bundle_dmg.sh's Finder-prettify step
+# (which runs under `set -e`) doesn't fail on a leftover mount.
+bundle:
+    cd crates/acpc_app/ui && npm run build
+    -for v in /Volumes/dmg.* /Volumes/JustChat*; do [ -e "$v" ] && hdiutil detach "$v" -force >/dev/null 2>&1 || true; done
+    -rm -f target/release/bundle/macos/rw.*.dmg
