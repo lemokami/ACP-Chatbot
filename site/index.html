@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ACP Chatbot — How it's built</title>
+  <meta name="description" content="A native desktop chat client for any ACP (Agent Client Protocol) agent. Architecture, tech stack, and how it works." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <div class="brand"><span class="logo">A</span> ACP Chatbot</div>
+      <nav>
+        <a href="#overview">Overview</a>
+        <a href="#stack">Stack</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#how">How it works</a>
+        <a href="#resources">Resources</a>
+        <a href="blog.html">Blog</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="wrap">
+      <h1>A native desktop client for <span class="grad">any ACP agent</span></h1>
+      <p>Bring your own coding agent (kiro-cli, Gemini CLI, Claude Code, or a custom one) and your own
+         API keys, and chat through a polished, app-like UI. A tiny Rust engine speaks the
+         Agent Client Protocol over stdio; a Tauri + Vue frontend renders it.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/lemokami/ACP-Chatbot">View on GitHub</a>
+        <a class="btn" href="blog.html">Read the build story →</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="wrap">
+    <section id="overview">
+      <h2>What it is</h2>
+      <p class="lead">ACP Chatbot is a <strong>client</strong> for the
+        <a href="https://agentclientprotocol.com">Agent Client Protocol (ACP)</a> — a JSON-RPC 2.0
+        protocol (the same one Zed uses) that lets a UI drive any compliant coding agent running as a
+        subprocess.</p>
+      <div class="grid cols-3">
+        <div class="card"><span class="tag">Bring your own agent</span><h3>Pluggable</h3><p class="muted">Configure command, args, working dir and per-agent env vars (API keys). Presets for Kiro, Gemini, Claude Code. Connect / disconnect in one click.</p></div>
+        <div class="card"><span class="tag">App-like UX</span><h3>Modern chat</h3><p class="muted">Streaming, Markdown + syntax highlighting, collapsible reasoning, tool-call cards, inline approval prompts, slash commands, attachments, model picker.</p></div>
+        <div class="card"><span class="tag">Local-first</span><h3>Persistent</h3><p class="muted">Chats saved to disk, listed in the sidebar, reopenable across restarts, with editable titles. Agents and API keys stored locally.</p></div>
+      </div>
+    </section>
+
+    <section id="stack">
+      <h2>Tech stack</h2>
+      <p class="lead">Everything used to build it, and why.</p>
+      <table>
+        <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+        <tr><td>Protocol</td><td><code>agent-client-protocol</code> 0.4.x (Rust)</td><td>Trait-based <code>Client</code>/<code>ClientSideConnection</code> API; wire-compatible with ACP v1. (The 0.14 rewrite dropped this API.)</td></tr>
+        <tr><td>Async runtime</td><td>Tokio (current-thread + LocalSet)</td><td>ACP futures are <code>!Send</code>, so they live on one dedicated thread.</td></tr>
+        <tr><td>Desktop shell</td><td>Tauri 2 + system WebView</td><td>Rust backend, tiny binaries, no bundled Chromium.</td></tr>
+        <tr><td>Frontend</td><td>Vue 3 + TypeScript + Vite</td><td>Reactive UI; fast HMR and builds.</td></tr>
+        <tr><td>Components</td><td>AI Elements Vue + shadcn-vue + Tailwind 4</td><td>Purpose-built AI-chat components (Conversation, Message, Tool, Reasoning, PromptInput).</td></tr>
+        <tr><td>Markdown / code</td><td>vue-stream-markdown, highlight.js</td><td>Streaming Markdown + syntax highlighting in replies.</td></tr>
+        <tr><td>Packaging</td><td>Tauri bundler → .app/.dmg, GitHub Actions</td><td>Per-OS installers; <code>tauri-action</code> on tag.</td></tr>
+      </table>
+    </section>
+
+    <section id="architecture">
+      <h2>Architecture</h2>
+      <p class="lead">A Cargo workspace with a strict split: the protocol engine is UI-agnostic and fully tested without any UI.</p>
+      <table>
+        <tr><th>Crate</th><th>Role</th></tr>
+        <tr><td><code>acpc_protocol</code></td><td>Headless ACP engine — subprocess management, the ACP <code>Client</code> impl, a thread bridge exposing a serializable <code>Command</code>/<code>Event</code> channel API, a JSON-RPC id-compat shim, settings, and fs/terminal handlers.</td></tr>
+        <tr><td><code>acpc_core</code></td><td>Framework-independent state machine + Markdown/syntax helpers (pure logic, unit-tested).</td></tr>
+        <tr><td><code>acpc_app</code></td><td>The Tauri app: Rust backend (commands, event forwarding, agent profiles, chat persistence) + the Vue frontend under <code>ui/</code>.</td></tr>
+      </table>
+      <div class="diagram"><pre>
+┌─ Webview (Vue 3 + AI Elements) ─┐  invoke()   ┌─ Tauri backend (Rust) ─┐  stdio  ┌────────────┐
+│  chat UI · agents · history     │ ─────────►  │  acpc_protocol engine  │ ──────► │  ACP agent │
+│                                 │ ◄─────────  │  (bridge + id-shim)    │ ◄────── │ subprocess │
+└─────────────────────────────────┘  acp-event  └────────────────────────┘         └────────────┘</pre></div>
+      <div class="note">The UI thread and the protocol thread share <strong>nothing</strong> but two channels carrying plain <code>Command</code> (UI→engine) and <code>Event</code> (engine→UI) enums. That single seam is why the same engine drove a GPUI prototype, headless examples, and now Tauri.</div>
+    </section>
+
+    <section id="how">
+      <h2>How a turn works</h2>
+      <div class="grid cols-2">
+        <div class="card"><span class="tag">UI → engine</span><h3>Commands</h3><p class="muted"><code>CreateSession</code>, <code>SendPrompt</code>, <code>Cancel</code>, <code>PermissionDecision</code>, <code>SetModel</code>, <code>Connect</code>/<code>Disconnect</code>.</p></div>
+        <div class="card"><span class="tag">engine → UI</span><h3>Events</h3><p class="muted"><code>Connected</code>, <code>SessionCreated</code>, <code>MessageChunk</code>, <code>ThoughtChunk</code>, <code>ToolCall(Update)</code>, <code>PermissionRequested</code>, <code>TurnEnded</code>, <code>ModelsAvailable</code>, <code>CommandsAvailable</code>, <code>Error</code>, <code>Disconnected</code>.</p></div>
+      </div>
+      <ol>
+        <li>You type and hit Enter → the Vue app pushes a user message and a streaming placeholder, then <code>invoke("send_prompt")</code>.</li>
+        <li>The Tauri backend forwards a <code>SendPrompt</code> command to the engine thread, which calls <code>session/prompt</code> over stdio.</li>
+        <li>The agent streams <code>session/update</code> notifications (thoughts, text, tool calls). The engine maps each into an <code>Event</code> and forwards it to the webview as <code>acp-event</code>.</li>
+        <li>If a tool needs approval, the agent calls <code>session/request_permission</code> → surfaces as a card with Allow/Reject (or auto-approves per policy).</li>
+        <li>The turn ends; the transcript is written to <code>~/.acp-chatbot/chats/</code>.</li>
+      </ol>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <div class="grid cols-2">
+        <div class="card"><h3>Protocol &amp; SDK</h3><ul>
+          <li><a href="https://agentclientprotocol.com">Agent Client Protocol spec</a></li>
+          <li><a href="https://crates.io/crates/agent-client-protocol">agent-client-protocol (Rust crate)</a></li>
+          <li><a href="https://github.com/zed-industries/zed">Zed / GPUI</a></li>
+        </ul></div>
+        <div class="card"><h3>Frontend</h3><ul>
+          <li><a href="https://tauri.app">Tauri 2</a></li>
+          <li><a href="https://vuejs.org">Vue 3</a></li>
+          <li><a href="https://www.ai-elements-vue.com">AI Elements Vue</a> · <a href="https://shadcn-vue.com">shadcn-vue</a></li>
+          <li><a href="https://tailwindcss.com">Tailwind CSS 4</a></li>
+        </ul></div>
+        <div class="card"><h3>This project</h3><ul>
+          <li><a href="https://github.com/lemokami/ACP-Chatbot">Repository</a></li>
+          <li><a href="https://github.com/lemokami/ACP-Chatbot/releases">Releases / installers</a></li>
+          <li><a href="blog.html">The full build story →</a></li>
+        </ul></div>
+        <div class="card"><h3>Agents you can plug in</h3><ul>
+          <li><code>kiro-cli acp</code></li>
+          <li><code>gemini --experimental-acp</code></li>
+          <li><code>npx -y @zed-industries/claude-code-acp</code></li>
+        </ul></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      Built with Rust, Tauri, Vue, and the Agent Client Protocol ·
+      <a href="https://github.com/lemokami/ACP-Chatbot">GitHub</a> ·
+      Apache-2.0
+    </div>
+  </footer>
+</body>
+</html>

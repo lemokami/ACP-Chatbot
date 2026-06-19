@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Building ACP Chatbot — the full story</title>
+  <meta name="description" content="How we built a native desktop client for any ACP agent: decisions, challenges, and current limitations." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <div class="brand"><span class="logo">A</span> ACP Chatbot</div>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="#journey">Journey</a>
+        <a href="#challenges">Challenges</a>
+        <a href="#limits">Limitations</a>
+        <a href="https://github.com/lemokami/ACP-Chatbot">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="wrap">
+      <h1>Building a <span class="grad">universal ACP client</span></h1>
+      <p>From a one-line idea — “a desktop UI for any coding agent” — to a packaged app. The decisions,
+         the dead-ends, and the things still on the to-do list.</p>
+    </div>
+  </div>
+
+  <main class="wrap">
+    <article class="post">
+      <p class="meta">Engineering notes · Rust · Tauri · Vue · Agent Client Protocol</p>
+
+      <p>The goal: a polished, app-like chat client that can talk to <em>any</em> agent speaking the
+        <a href="https://agentclientprotocol.com">Agent Client Protocol</a> (ACP) — the JSON-RPC 2.0
+        protocol coding agents like kiro-cli, Gemini CLI, and Claude Code expose over stdio. You bring
+        the agent and your API keys; the app gives you streaming chat, tools, approvals, history, and
+        attachments.</p>
+
+      <h2 id="design">The core design principle</h2>
+      <p>One decision shaped everything: <strong>keep the agent engine completely separate from the UI</strong>,
+        connected by a single seam — two channels carrying plain, serializable enums:</p>
+      <ul>
+        <li><code>Command</code> (UI → engine): <code>CreateSession</code>, <code>SendPrompt</code>, <code>Cancel</code>, <code>PermissionDecision</code>, <code>SetModel</code>, <code>Connect</code>/<code>Disconnect</code>.</li>
+        <li><code>Event</code> (engine → UI): <code>MessageChunk</code>, <code>ThoughtChunk</code>, <code>ToolCall</code>, <code>PermissionRequested</code>, <code>TurnEnded</code>, and friends.</li>
+      </ul>
+      <p>The engine (<code>acpc_protocol</code>) knows nothing about the UI; the UI knows nothing about
+        ACP. That seam is the reason we could swap the entire frontend later without touching the engine.</p>
+
+      <h2 id="journey">The journey</h2>
+
+      <div class="step"><div class="n">1</div><div class="b">
+        <h3>The headless engine first</h3>
+        <p>Before any pixels, we built and tested the protocol layer: spawn <code>kiro-cli acp</code>, do the
+          ACP <code>initialize</code> handshake, create a session, send a prompt, and stream
+          <code>session/update</code> notifications back. A scripted mock agent let us unit-test the whole
+          flow — handshake, prompts, tool calls, the permission loop, even crash detection — without a UI or
+          the real agent.</p>
+      </div></div>
+
+      <div class="step"><div class="n">2</div><div class="b">
+        <h3>GPUI: the first UI</h3>
+        <p>The first frontend used <a href="https://www.gpui.rs">GPUI</a> (Zed’s GPU-accelerated Rust UI).
+          It worked — native, fast — but came with friction (see challenges below). Crucially, because of
+          the Command/Event seam, the UI was just one consumer of the engine.</p>
+      </div></div>
+
+      <div class="step"><div class="n">3</div><div class="b">
+        <h3>Pivot to Tauri + Vue</h3>
+        <p>We moved to <a href="https://tauri.app">Tauri</a> with a Vue 3 webview. The Rust engine stayed
+          <em>identical</em>; we added a thin Tauri backend that maps <code>invoke()</code> calls to
+          <code>Command</code>s and forwards <code>Event</code>s to the webview. First as hand-rolled
+          Vue + Tailwind, then re-built on the <a href="https://www.ai-elements-vue.com">AI Elements Vue</a>
+          component library (shadcn-vue + Tailwind 4) for a true AI-chat look: conversation, message bubbles,
+          streaming Markdown, collapsible reasoning, tool cards.</p>
+      </div></div>
+
+      <div class="step"><div class="n">4</div><div class="b">
+        <h3>From client to platform</h3>
+        <p>Then the features that make it a real product: configurable <strong>agent profiles</strong>
+          (any command/args/env + API keys, with presets), one-click connect/disconnect, persistent chat
+          history with editable titles, attachments, model selection, and slash commands surfaced from the
+          agent. Finally, packaging into a <code>.dmg</code> and a CI workflow for multi-OS installers.</p>
+      </div></div>
+
+      <h2 id="challenges">Hard problems &amp; how we solved them</h2>
+
+      <h3>1. The ACP crate assumed integer JSON-RPC ids</h3>
+      <p>kiro-cli sends agent→client requests (permission, file reads, terminals) with <strong>string</strong>
+        ids; the pinned <code>agent-client-protocol</code> 0.4.x assumed integers, so those requests failed
+        to parse and were silently dropped — the agent hung forever waiting for a permission reply. The fix
+        is a transparent <strong>id-compat shim</strong> on the byte stream: rewrite incoming string ids to
+        synthesized integers (remembering the mapping), and translate our outgoing responses back. Numeric-id
+        agents pass through untouched.</p>
+
+      <h3>2. <code>!Send</code> futures</h3>
+      <p>The ACP connection’s futures are <code>!Send</code>, so they can’t move across threads. We run them
+        on a <strong>dedicated OS thread</strong> with a current-thread Tokio runtime + <code>LocalSet</code>,
+        and bridge to the UI thread only through the serializable channel API.</p>
+
+      <h3>3. macOS Metal toolchain</h3>
+      <p>Both GPUI and Tauri compile Metal shaders at build time; Xcode 26 ships the Metal compiler as a
+        separate component. Building failed until we ran
+        <code>xcodebuild -downloadComponent MetalToolchain</code>.</p>
+
+      <h3>4. No Node — then Node</h3>
+      <p>The environment had no Node, so the first Vue UI ran from vendored global builds (Vue + Tailwind via
+        CDN files, no bundler). To adopt AI Elements Vue (a shadcn-vue registry that needs Vite + Tailwind 4),
+        we installed Node and scaffolded a proper Vite project, wiring its built <code>dist/</code> into Tauri’s
+        <code>frontendDist</code>.</p>
+
+      <h3>5. The “it knows my project” surprise</h3>
+      <p>Because the agent was launched in the project directory, it read the repo and greeted us with
+        project context. For a general chat app, a new chat should start clean — so sessions now use an empty
+        <code>~/.acp-chatbot/workspace</code> by default (overridable per agent).</p>
+
+      <h3>6. Bundled-app PATH</h3>
+      <p>A macOS <code>.app</code> launched from Finder gets a minimal <code>PATH</code> and can’t find
+        user-installed CLIs (<code>kiro-cli</code>, <code>npx</code>, <code>gemini</code>). The backend now
+        augments the spawned agent’s PATH with <code>~/.local/bin</code>, <code>/opt/homebrew/bin</code>, etc.</p>
+
+      <h3>Smaller fixes</h3>
+      <ul>
+        <li>Thought text rendered one word per line — we were inserting newlines between streamed chunks; fixed by concatenating verbatim.</li>
+        <li>Long tool commands overflowed the window — a classic flexbox <code>min-width</code> issue; fixed with <code>min-w-0</code> + wrapping.</li>
+        <li>Tool cards stuck on “pending” — finalized lingering statuses when a turn ends.</li>
+      </ul>
+
+      <h2 id="limits">Current limitations</h2>
+      <div class="warn">These are known and on the roadmap — worth being upfront about.</div>
+      <ul>
+        <li><strong>No true context resume.</strong> Reopening a saved chat shows the full transcript, but the agent’s memory isn’t restored — a new prompt starts a fresh ACP session. Real resume needs ACP <code>session/load</code> against the agent’s own session store.</li>
+        <li><strong>Unsigned builds.</strong> The distributed <code>.dmg</code> isn’t codesigned/notarized, so macOS Gatekeeper requires right-click → Open. Proper distribution needs an Apple Developer ID.</li>
+        <li><strong>Auth is env-only.</strong> Agents that authenticate via API-key env vars work; agents requiring an interactive ACP <code>authenticate</code> (OAuth-style) flow aren’t wired to a UI yet.</li>
+        <li><strong>Agent must be installed.</strong> ACP Chatbot is a client; it spawns an agent you’ve installed and put on PATH. A missing binary surfaces a clear “failed to start agent”.</li>
+        <li><strong>Images sent inline.</strong> Image attachments are base64-encoded into the prompt, which inflates large payloads; other files are sent as <code>file://</code> resource links.</li>
+        <li><strong>Slash commands depend on the agent.</strong> The <code>/</code> menu lists whatever the agent advertises via ACP; if it advertises none, the menu is empty.</li>
+        <li><strong>Per-OS builds.</strong> Tauri can’t cross-compile; installers are produced on each OS (handled by the CI workflow on tag).</li>
+      </ul>
+
+      <h2 id="try">Try it</h2>
+      <pre># run from source
+cd crates/acpc_app/ui &amp;&amp; npm install &amp;&amp; npm run build
+cd ../../.. &amp;&amp; cargo run -p acpc_app
+
+# build an installer (macOS)
+cd crates/acpc_app/ui &amp;&amp; npm run build
+cd .. &amp;&amp; ui/node_modules/.bin/tauri build   # → target/release/bundle/</pre>
+      <p>Source and installers: <a href="https://github.com/lemokami/ACP-Chatbot">github.com/lemokami/ACP-Chatbot</a>.</p>
+    </article>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a href="index.html">← Back to overview</a> · Apache-2.0
+    </div>
+  </footer>
+</body>
+</html>
